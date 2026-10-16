@@ -60,45 +60,25 @@ The OpenAPI spec says operation-level parameters override path-level ones with t
 
 ---
 
-## 2. OpenAPI: empty or missing path parameters change the route
+## 2. OpenAPI: an empty path parameter changes the route
 
-**Title:** OpenAPI connections: empty or missing path parameters silently change the request route
+**Title:** OpenAPI connections: an empty path parameter is accepted and changes the request route
 
 **Steps to reproduce**
 
-1. Add `agent/connections/items.ts` with a `DELETE /items/{id}` operation:
-   ```ts
-   import { defineOpenAPIConnection } from "eve/connections";
-
-   export default defineOpenAPIConnection({
-     baseUrl: "https://api.example.com",
-     spec: {
-       openapi: "3.0.0",
-       paths: {
-         "/items/{id}": {
-           delete: {
-             operationId: "deleteItem",
-             parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-             responses: { "200": { description: "OK" } },
-           },
-         },
-       },
-     },
-   });
-   ```
-2. Call the `deleteItem` tool with `{ "id": "" }`, then with `{}`. The second case can come from the model omitting the value, or from a `toolCall.providedArguments` resolver returning `undefined`.
-3. Inspect the outgoing request URLs.
+1. `npm install` (Node.js 24)
+2. `node echo-server.mjs` in one terminal
+3. `npx eve dev --no-ui` in another
+4. `curl -s -X POST http://127.0.0.1:2000/eve/v1/session -H 'content-type: application/json' -d '{"message":"Go."}'`
+5. The scripted model calls `items__deleteItem` with `{ "id": "" }`; the echo server prints the request eve sent.
 
 **Current vs. expected behavior**
 
-Current:
+Current: the echo server prints `DELETE /items/`. The empty `id` passes the tool's input schema and is substituted as-is, so a single-item delete is sent to the collection route.
 
-- `{ "id": "" }` sends `DELETE https://api.example.com/items/`. That's the collection route, so a delete aimed at one item can hit a different endpoint.
-- `{}` sends `DELETE https://api.example.com/items/%7Bid%7D`, with the literal placeholder in the URL.
+Expected: eve rejects the empty value before sending the request, as it already does for `.` and `..` since #4931. (A missing `id` is correctly rejected by schema validation; only `""` slips through.)
 
-Expected: both are rejected before any request is sent, just as `.` and `..` already are since #4931.
-
-Cause: in `openapi-client.ts` `executeTool`, a missing value hits `continue` and leaves the placeholder in place, and `""` is substituted as-is.
+Cause: in `openapi-client.ts` `executeTool`, the path branch only checks for `.` and `..`.
 
 ---
 
